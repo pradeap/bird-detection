@@ -2,10 +2,15 @@ import cv2
 from ultralytics import YOLO
 import os
 import numpy as np
-import concurrent.futures
+import math
+global identified
+
 
 model = YOLO("yolov8n.pt")
 cam = cv2.VideoCapture('media1.mp4')
+#Dirctory to save the image
+output_folder = "/Users/yogeshthangamuthu/Desktop/project/Cv Library projects/BIRD PROJECT/bird_image"
+os.makedirs(output_folder, exist_ok=True)
 
 def filter(image):
 
@@ -122,7 +127,6 @@ def filter_overlapping_rectangles(rectangles, overlap_threshold=0.2):
             t=0
             p=0
             for rect2 in filtered_rectangles:
-                #print("filtered_rectangles:",filtered_rectangles)
 
                 iou,pos=calculate_iou1(rect1,rect2)
 
@@ -214,11 +218,13 @@ def avoid_overlap(contours):
         filtered_rectangles1.append((x,y,w,h,a))
 
     return filtered_rectangles1
+#def display(contours):
+
 def overlap(prev,frame):
 
     kernel = np.array((9, 9), dtype=np.uint8)
-    frame1=prev
-    frame2=frame
+    frame1 = prev
+    frame2 = frame
     img1 = cv2.cvtColor(frame1, cv2.COLOR_RGB2GRAY)
     img2 = cv2.cvtColor(frame2, cv2.COLOR_RGB2GRAY)
     g_frame1=img1
@@ -230,41 +236,254 @@ def overlap(prev,frame):
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
 
-    # Create a copy of the original frame for drawing contours
+
     frame_with_contours = frame2.copy()
-    
-    contours1=combine_close_rectangles(contours)
-    contours1=avoid_overlap(contours1)
 
-    length=len(contours1)
-    for x, y, w,h ,a in contours1:#c:close to camera or not
-        xc=x+int(w/2)
-        yc=y+int(h/2)
-        x1=x + w
-        y1=y + h
-        cv2.circle(frame_with_contours,(xc,yc),4,(255,0,0),2)
-        text = f"({xc}, {yc},area:,{w*h},{a})"
-        cv2.putText(frame_with_contours, text, (xc + 10, yc), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255, 255, 255), 1, cv2.LINE_AA)
+    contours=combine_close_rectangles(contours)
+    contours=avoid_overlap(contours)
+    return contours
+def direction_calculator(curr,prev):
+    prev=list(prev[0])
+    x1,y1=curr[0],curr[1]
+    x2, y2 = prev[0], prev[1]
+    x=abs(curr[0]-prev[0])
+    y=abs(curr[1]-prev[1])
+    if x>y:
+        if x1>x2:
+            return 2
+        else:
+            return 4
+    else:
+        if y1>y2:
+            return 3
+        else:
+            return 1
 
-        cv2.rectangle(frame_with_contours, (x, y), (x1, y1), (0, 255, 0), 2)
 
-    # Display the original frame with highlighted contours using OpenCV
-    cv2.putText(frame_with_contours, f'number_of_birds:{length}', (20+ 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1,
-                (0, 0, 255), 3, cv2.LINE_AA)
-    cv2.imshow("Frame with Contours", frame_with_contours)
-    cv2.waitKey(0)
+def direction_condition(input,check):
+    x1,y1=check[0],check[1]
+    x2,y2=input[0],input[1]
+    dr=check[12]
+    if dr==4:
+        if x2<x1 :
+            return 1
+    elif dr ==2:
+        if x2>x1 :
+            return 1
+    elif dr ==3:
+        if y2>y1:
+            return 1
+    else:
+        if y1>y2:
+            return 1
+    return 0
+def size_condition(input,check):#9
+    a1=check[9]
+    a2=input[9]
+    k=.40
+    if (a1 - (a1 * k)) <= a2 <= (a1 + (a1 * k)) or (a2 - (a2 * k)) <= a1 <= (a2 + (a2 * k)):
+        return 1
+    return 0
+
+def id_checker(inp,check):
+    w1=inp[4]
+    h1=inp[5]
+    templst=[]
+    for i,lst in enumerate(check):
+        x2,y2=lst[6],lst[7]
+        x1,y1=inp[6],inp[7]
+        distance = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+        com=max(w1,h1)
+        if distance<=com*2.5:
+            templst.append(lst)
+
+    if len(templst) == 1:
+        identified.append(templst[0][10])
+        k=templst[0][11]
+
+        dir = direction_calculator(inp, templst)
+        k += 1
+        return (templst[0][10],k,dir)
+    elif len(templst)>2:
+        layer1=[]
+        new=inp
+        for i in templst:
+            k=direction_condition(inp,i)
+            l=size_condition(inp,i)
+            if k==1 and l==1:
+
+                return (i[10],i[11],i[12])
+        return (0,0,0)
+
+    else:
+        if len(templst)==2:
+            x,y=inp[0],inp[1]
+            x1,y1=templst[0][0],templst[0][0]
+            x2, y2 = templst[1][0], templst[1][0]
+            id1=templst[0][10]#id for first
+            id2 = templst[1][10]  # id for second
+            fd1=templst[0][12]#direction of first
+            fd2=templst[1][12]#direction of second
+            if id1 not in identified and id2 not in identified:
+                if fd1==fd2:
+                    if fd1==4:
+                        if x<x1:
+                            val = templst[0]
+                        else:
+                            val=templst[1]
+                    elif fd1==2:
+                        if x>x1:
+                            val = templst[0]
+                        else:
+                            val=templst[1]
+                    elif fd1==1:
+                        if y<y1:
+                            val = templst[0]
+                        else:
+                            val=templst[1]
+                    else:
+                        if y>y1:
+                            val = templst[0]
+                        else:
+                            val=templst[1]
+
+                    new=[]
+                    new.append(val)
+                    dir = direction_calculator(inp, new)
+                    k = new[0][11]
+                    identified.append(new[0][10])
+                    return (new[0][10], k, dir)
+
+
+
+
+            else :
+                if id1 not in identified:
+                    id = id1
+                    val=templst[0]
+                elif id2 not in identified:
+                    id = id2
+                    val = templst[1]
+                else:
+                    return (0,0,0)
+                new = []
+                new.append(val)
+
+                dir = direction_calculator(inp, new)
+                k = new[0][11]
+                identified.append(new[0][10])
+                return (new[0][10], k, dir)
+        return (0,0,0)
+
+def find_it(id,val):
+    temp=[]
+    for i in id :
+        for j in val:
+            if j[10]==i:
+                temp.append(j)
+    return temp
+def calculate_distance1(center1, center2):
+    return int(math.sqrt((center1[0] - center2[0])**2 + (center1[1] - center2[1])**2))
+
+def align_input_with_memory(input_values, memory_lists):
+    xc,yc=input_values[6],input_values[7]
+    temp=[]
+    temp1 = []
+    dict_temp={}
+    for i in memory_lists:
+        temp.append(calculate_distance1((xc,yc),(i[6],i[7])))
+    for i,j in enumerate(temp):
+        dict_temp[j]=i
+    temp.sort()
+    for i in temp:
+        temp1.append(memory_lists[dict_temp[i]])
+
+    return temp1
+
+def parity_check(input,check):#change
+    temp=[]
+    f1=input[13]
+    f2=check[13]
+
+
+    x1c=input[6]
+    y1c = input[7]
+    x2c=check[6]
+    y2c = check[7]
+
+    dist = ((x1c - x2c) ** 2 + (y1c - y2c) ** 2) ** 0.5
+    xoff=max(input[4],input[5],check[4],check[5])
+    ff = f1 - f2
+    if f1-f2<=2:
+        k=.30
+        xoff=2*xoff
+    else:
+        k=.30+(.10*(ff-2))
+
+        xoff=(2*xoff)*(ff)
+
+    a1=input[9]
+    a2=check[9]
+    if dist <=xoff:
+        if check[11]==0:
+
+            A1=a1+(a1*k)
+            A2=a2+(a2*k)
+
+            if (a1 - (a1 * k)) <= a2 <= (a1 + (a1 * k)) or (a2 - (a2 * k)) <= a1 <= (a2 + (a2 * k)):
+
+                d=direction_calculator(input,[check])
+
+                checktemp=list(check)
+                checktemp[12]=d
+                e=direction_condition(input,checktemp)
+                return e,d
+
+
+
+        else:
+            d = check[11]
+            e = direction_condition(input, check)
+            return e,d
+    return 0, 0
+
+
+def memory_checker(input,memory):
+
+    temp=[]
+    for i in memory:
+        if len(i) !=0:
+
+            i=align_input_with_memory(input,i)
+
+            for j in i :
+
+                e,d=parity_check(input,j)
+                if e==1:
+                    eid=j[10]
+                    return d,eid
+    return 0,0
 
 
 
 
 frame_index = 0
 
-
-
+identified = []
+id=1
 prevframe=0
+size_saver=[]
+id_prev=[]
+val_prev=[]
+memory=[]
 while True:
+    temp=[]
+    newpd=[]
+    newval=[]
+    print("frame_index",frame_index)
     kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     ret, frame = cam.read()
+    copy_frame=frame.copy()
 
     if not ret:
         break  # Break the loop if no more frames are available
@@ -274,22 +493,74 @@ while True:
         prevframe=frame
         frame_index += 1
         continue  # Skip the first frame
-    results = model(frame, stream=True)
-    for r in results:
-        boxes = r.boxes
-        overs = []
-        for box in boxes:
-            x1, y1, x2, y2 = box.xyxy[0]  # each vechicle box
-            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-
-            #cv2.rectangle(frame,(x1,y1),(x2,y2),(0,255,0),3)
 
     detection=overlap(prevframe,frame)
 
 
+    for x,y,w,h,a in detection:
+        xc = x + int(w / 2)
+        yc = y + int(h / 2)
+        x1=x+w
+        y1=y+h
+        are=w*h
+        if are>=30:
+            if frame_index==1:
+                b=id
+                id+=1
+                c=0
+                temp.append((x,y,x1,y1,w,h,xc,yc,a,are,b,c,0,frame_index))
+                newpd.append(b)
+                newval.append((x,y,x1,y1,w,h,xc,yc,a,are,b,c,0,frame_index))
+            else:
+                view=id_checker((x,y,x1,y1,w,h,xc,yc,a,are,0,0,0,frame_index),size_saver)
+                id_fet=view[0]
+                c=view[1]
+                d=view[2]
+                if id_fet!=0:
+                    b = id_fet
+                    k=(x, y, x1, y1, w, h, xc, yc, a, are, b,c,d,frame_index)
+                    temp.append(k)
+
+                else:
+
+                    d,b,=memory_checker((x,y,x1,y1,w,h,xc,yc,a,are,0,0,0,frame_index),memory)
+                    if b==0 or d==0:
+                        b=id
+                        print("new_id",b)
+                        id+=1
+                    k=(x, y, x1, y1, w, h, xc, yc,a, are, b, 0, 0,frame_index)
+                    temp.append(k)
+
+                newpd.append(b)
+                newval.append(k)
+
+
+
+
+
+
+
+            #cv2.circle(copy_frame, (xc, yc), 4, (255, 0, 0), 2)
+            cv2.putText(copy_frame, f'{b}', (x1 + 10, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255, 255, 255), 1, cv2.LINE_AA)
+            cv2.rectangle(copy_frame,(x,y),(x1,y1),(0,255,0),2)
+            cv2.imshow("frame",copy_frame)
+
+    set1 = set(identified)
+    set2 = set(id_prev)
+    non_common_elements = list(set1.symmetric_difference(set2))
+    mem=find_it(non_common_elements,val_prev)
+    cv2.waitKey(0)
+    memory.append(mem)
+    if len( memory)>6:
+        memory.pop(0)
+    id_prev=newpd
+    val_prev=newval
+
     prevframe=frame
 
+    size_saver=temp
 
+    identified = []
 
     frame_index += 1
 
