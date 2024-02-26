@@ -8,6 +8,8 @@ global identified
 
 model = YOLO("yolov8n.pt")
 cam = cv2.VideoCapture('media1.mp4')
+fps=cam.get(cv2.CAP_PROP_FPS)
+
 #Dirctory to save the image
 output_folder = "/Users/yogeshthangamuthu/Desktop/project/Cv Library projects/BIRD PROJECT/bird_image"
 os.makedirs(output_folder, exist_ok=True)
@@ -464,8 +466,30 @@ def memory_checker(input,memory):
                     return d,eid
     return 0,0
 
+def memory_remover(mem,id):
+    mem_temp=[]
+    for i in mem:
+        if len(i)!=0:
+            temp=[]
+            for j in i:
+                if j[10]!= id:
+                    temp.append(j)
+            mem_temp.append(temp)
+        else :
+            mem_temp.append(i)
+    return mem_temp
 
 
+def initial_count(lst):
+     if lst[9]<=700:
+         ref_line_pts = np.array([[0,750], [1000, 630]])
+
+         # Calculate slope of the reference line
+         slope = (ref_line_pts[1, 1] - ref_line_pts[0, 1]) / (ref_line_pts[1, 0] - ref_line_pts[0, 0])
+         x, y = lst[6],lst[7]
+         reference_y = int(slope * (x - ref_line_pts[0, 0]) + ref_line_pts[0, 1])
+         print("slope",slope)
+         print("reference_y",y < reference_y)
 
 frame_index = 0
 
@@ -503,45 +527,53 @@ while True:
         x1=x+w
         y1=y+h
         are=w*h
-        if are>=30:
+
+        if are>=70:
+            g = initial_count((x, y, x1, y1, w, h, xc, yc, a, are, 0, 0, 0, frame_index))
             if frame_index==1:
+
                 b=id
                 id+=1
                 c=0
-                temp.append((x,y,x1,y1,w,h,xc,yc,a,are,b,c,0,frame_index))
+                g = initial_count((x,y,x1,y1,w,h,xc,yc,a,are,b,c,0,frame_index))
+                temp.append((x,y,x1,y1,w,h,xc,yc,a,are,b,c,0,frame_index,g))
                 newpd.append(b)
-                newval.append((x,y,x1,y1,w,h,xc,yc,a,are,b,c,0,frame_index))
+                newval.append((x,y,x1,y1,w,h,xc,yc,a,are,b,c,0,frame_index,g))
             else:
-                view=id_checker((x,y,x1,y1,w,h,xc,yc,a,are,0,0,0,frame_index),size_saver)
+                view=id_checker((x,y,x1,y1,w,h,xc,yc,a,are,0,0,0,frame_index,g),size_saver)
                 id_fet=view[0]
                 c=view[1]
                 d=view[2]
                 if id_fet!=0:
                     b = id_fet
-                    k=(x, y, x1, y1, w, h, xc, yc, a, are, b,c,d,frame_index)
+                    k=(x, y, x1, y1, w, h, xc, yc, a, are, b,c,d,frame_index,g)
                     temp.append(k)
 
                 else:
 
-                    d,b,=memory_checker((x,y,x1,y1,w,h,xc,yc,a,are,0,0,0,frame_index),memory)
+                    d,b,=memory_checker((x,y,x1,y1,w,h,xc,yc,a,are,0,0,0,frame_index,g),memory)
+
                     if b==0 or d==0:
                         b=id
                         print("new_id",b)
                         id+=1
-                    k=(x, y, x1, y1, w, h, xc, yc,a, are, b, 0, 0,frame_index)
+                    else:
+                        memory=memory_remover(memory,b)
+
+                    k=(x, y, x1, y1, w, h, xc, yc,a, are, b, 0, 0,frame_index,g)
                     temp.append(k)
 
                 newpd.append(b)
                 newval.append(k)
+            rectangle_points=[(0,750), (50, 800), (1000,630), (950, 580)]
+            cv2.line(copy_frame, (0,750), (1000,630), (0,0,255), 2)
+            cv2.line(copy_frame, (1000, 630), (1920, 750), (0, 0, 255), 2)
+            cv2.rectangle(copy_frame, (700,0), (1230,630), (0, 255, 0), 2)
+            #cv2.polylines(frame, [np.array(rectangle_points)], isClosed=True, color=(0, 255, 0), thickness=2)
 
-
-
-
-
-
-
+            cv2.circle(copy_frame, (700,0), 4, (255, 0, 0), 2)
             #cv2.circle(copy_frame, (xc, yc), 4, (255, 0, 0), 2)
-            cv2.putText(copy_frame, f'{b}', (x1 + 10, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(copy_frame, f'{b},{are},{a}', (x1 + 10, y1), cv2.FONT_HERSHEY_SIMPLEX, 0.5,(255, 255, 255), 1, cv2.LINE_AA)
             cv2.rectangle(copy_frame,(x,y),(x1,y1),(0,255,0),2)
             cv2.imshow("frame",copy_frame)
 
@@ -551,11 +583,13 @@ while True:
     mem=find_it(non_common_elements,val_prev)
     cv2.waitKey(0)
     memory.append(mem)
-    if len( memory)>6:
+    if len( memory)>10:
         memory.pop(0)
     id_prev=newpd
     val_prev=newval
-
+    #frame_path = f"{output_folder}/frame_{frame_index:04d}.png"
+    #  cv2.imwrite(frame_path, frame)
+    print(frame.shape)
     prevframe=frame
 
     size_saver=temp
@@ -563,6 +597,7 @@ while True:
     identified = []
 
     frame_index += 1
+
 
 cam.release()
 cv2.destroyAllWindows()
